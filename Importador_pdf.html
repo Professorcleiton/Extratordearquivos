@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leitor de Relatório PDF | SIGA</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f1f5f9; padding: 30px; color: #1e293b; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        h2 { color: #005088; margin-bottom: 10px; }
+        .upload-box { border: 2px dashed #005088; padding: 30px; text-align: center; border-radius: 8px; background: #f8fafc; margin-bottom: 20px; }
+        input[type="file"] { font-size: 16px; margin-bottom: 15px; }
+        button { background: #eab308; color: #1e293b; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #ca8a04; }
+        button:disabled { background: #cbd5e1; cursor: not-allowed; }
+        #status-texto { margin-top: 15px; font-weight: bold; color: #0369a1; font-size: 15px; }
+        .instrucoes { background: #dcfce7; color: #166534; padding: 15px; border-radius: 6px; margin-top: 15px; font-weight: bold; display: none; border-left: 5px solid #16a34a; }
+        
+        .result-area { margin-top: 25px; overflow-y: auto; max-height: 500px; border: 1px solid #e2e8f0; border-radius: 6px; display: none; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 10px 12px; border: 1px solid #cbd5e1; text-align: left; }
+        th { background: #005088; color: white; position: sticky; top: 0; }
+        tr:nth-child(even) { background: #f8fafc; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Processador Automático do Relatório GPM</h2>
+        <p>Selecione o arquivo <b>relatorio_entidade.pdf</b> original que você baixou. O sistema lerá as 83 páginas e montará a tabela para a sua planilha.</p>
+        
+        <div class="upload-box">
+            <input type="file" id="arquivoPDF" accept="application/pdf">
+            <br>
+            <button id="btn-processar" onclick="lerEProcessarPDF()">Extrair Patrimônios</button>
+            <div id="status-texto">Aguardando arquivo...</div>
+        </div>
+
+        <div class="instrucoes" id="avisoCopia">
+            ✅ Finalizado! Foram encontrados <b><span id="qnt-itens">0</span> itens</b>. <br>
+            Clique dentro da tabela, aperte <b>Ctrl+A</b> para selecionar tudo, depois <b>Ctrl+C</b>. Vá na aba Patrimonio do Google Sheets e aperte <b>Ctrl+Shift+V</b> na primeira linha vazia.
+        </div>
+
+        <div class="result-area" id="area-tabela">
+            <table id="tabelaResultado">
+                <thead>
+                    <tr>
+                        <th>Código Real</th>
+                        <th>Item / Descrição Completa</th>
+                        <th>Categoria</th>
+                        <th>Localização Atual</th>
+                        <th>Responsável</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tbodyResultados"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Configura o motor do PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        async function lerEProcessarPDF() {
+            const fileInput = document.getElementById('arquivoPDF');
+            if (fileInput.files.length === 0) return alert("Por favor, selecione o arquivo PDF do relatório.");
+
+            const file = fileInput.files[0];
+            const btn = document.getElementById('btn-processar');
+            const status = document.getElementById('status-texto');
+            
+            btn.disabled = true;
+            status.innerText = "Lendo o PDF, aguarde (Isso pode levar alguns segundos)...";
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                const totalPaginas = pdf.numPages;
+                
+                let textoCompleto = "";
+
+                // Varre todas as 83 páginas automaticamente
+                for (let i = 1; i <= totalPaginas; i++) {
+                    status.innerText = `Extraindo texto da página ${i} de ${totalPaginas}...`;
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const strings = textContent.items.map(item => item.str);
+                    textoCompleto += strings.join(" ") + " ";
+                }
+
+                status.innerText = "Organizando e limpando os dados...";
+                
+                // Regex super precisa para achar o código de 12 dígitos (Plaqueta do PR)
+                const regex = /\b([123]\d{11})\b([\s\S]*?)(?=\b[123]\d{11}\b|$)/g;
+                let match;
+                let contagem = 0;
+                const tbody = document.getElementById('tbodyResultados');
+                tbody.innerHTML = '';
+
+                while ((match = regex.exec(textoCompleto)) !== null) {
+                    const codigo = match[1].trim();
+                    let resto = match[2];
+                    
+                    // Limpa quebras de linha e espaços duplos
+                    resto = resto.replace(/\s+/g, ' ').trim();
+                    
+                    // Descobre o Status baseado nas palavras-chave do relatório
+                    let statusSistema = "Bom";
+                    let rl = resto.toLowerCase();
+                    if (rl.includes("inserv")) statusSistema = "Inservível";
+                    else if (rl.includes("manuten") || rl.includes("danific")) statusSistema = "Em Manutenção";
+                    
+                    // Limpa a descrição cortando fora as datas, valores em reais (R$) e a palavra do status
+                    let descricaoLimpa = resto.replace(/\b(Regular|Bom|Novo|Inservível)\b.*/i, '');
+                    descricaoLimpa = descricaoLimpa.replace(/R\$.*/, '');
+                    descricaoLimpa = descricaoLimpa.replace(/\d{2}\/\d{2}\/\d{4}.*/, '');
+                    descricaoLimpa = descricaoLimpa.trim();
+                    
+                    // Adiciona na Tabela
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${codigo}</td>
+                        <td>${descricaoLimpa}</td>
+                        <td>Patrimônio do Estado</td>
+                        <td>Almoxarifado</td>
+                        <td>A Definir</td>
+                        <td>${statusSistema}</td>
+                    `;
+                    tbody.appendChild(tr);
+                    contagem++;
+                }
+
+                document.getElementById('qnt-itens').innerText = contagem;
+                document.getElementById('avisoCopia').style.display = 'block';
+                document.getElementById('area-tabela').style.display = 'block';
+                status.innerText = "Finalizado!";
+                
+            } catch (error) {
+                status.innerText = "Erro ao processar o PDF. Verifique o arquivo.";
+                console.error(error);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
