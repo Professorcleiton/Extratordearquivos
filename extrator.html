@@ -1,1 +1,103 @@
 
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversor de Patrimônio</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f1f5f9; padding: 20px; color: #1e293b; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 150px; padding: 10px; font-family: monospace; border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 15px; }
+        button { background: #005088; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0c4a6e; }
+        .result-area { margin-top: 20px; overflow-x: auto; max-height: 400px; border: 1px solid #e2e8f0; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 8px; border: 1px solid #cbd5e1; text-align: left; }
+        th { background: #f8fafc; position: sticky; top: 0; }
+        .instrucoes { background: #eab308; color: #1e293b; padding: 10px; border-radius: 6px; margin-top: 15px; font-weight: bold; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2><i class="fa-solid fa-filter"></i> Limpador de Relatório GPM</h2>
+        <p>Cole abaixo o texto do PDF exatamente como você copiou:</p>
+        
+        <textarea id="textoBruto" placeholder="Cole o relatório aqui..."></textarea>
+        <button onclick="processarTexto()">Transformar em Tabela</button>
+
+        <div class="instrucoes" id="avisoCopia">
+            Pronto! Agora clique e arraste para selecionar toda a tabela abaixo, aperte Ctrl+C, vá até a sua planilha do Google (aba Patrimonio, na primeira linha vazia) e aperte Ctrl+V.
+        </div>
+
+        <div class="result-area">
+            <table id="tabelaResultado">
+                <!-- A tabela gerada aparecerá aqui -->
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function processarTexto() {
+            const texto = document.getElementById('textoBruto').value;
+            
+            // Regex para encontrar os números de 12 dígitos do patrimônio do PR
+            const regex = /\b([123]\d{11})\b([\s\S]*?)(?=\b[123]\d{11}\b|$)/g;
+            let match;
+            
+            const tabela = document.getElementById('tabelaResultado');
+            tabela.innerHTML = `<tr>
+                <th>Código</th>
+                <th>Item / Descrição</th>
+                <th>Categoria</th>
+                <th>Localização</th>
+                <th>Responsável</th>
+                <th>Status</th>
+            </tr>`;
+
+            let contagem = 0;
+
+            while ((match = regex.exec(texto)) !== null) {
+                const codigo = match[1].trim();
+                const resto = match[2];
+                
+                // Separa as colunas usando a barra "|" que veio do seu PDF
+                const partes = resto.split('|');
+                
+                if (partes.length >= 4) {
+                    // Limpa quebras de linha e espaços extras
+                    let descricao = partes[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                    let categoria = partes[2].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                    let statusOriginal = partes[3].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+                    // Converte os status do governo para o padrão do seu sistema
+                    let statusSistema = "Bom"; // Por padrão Novo/Bom/Regular vira "Bom" no sistema
+                    if (statusOriginal.toLowerCase().includes("inserv")) statusSistema = "Inservível";
+                    if (statusOriginal.toLowerCase().includes("manuten")) statusSistema = "Em Manutenção";
+                    
+                    // Cria a linha da tabela
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${codigo}</td>
+                        <td>${descricao}</td>
+                        <td>${categoria}</td>
+                        <td>Almoxarifado</td>
+                        <td>A Definir</td>
+                        <td>${statusSistema}</td>
+                    `;
+                    tabela.appendChild(tr);
+                    contagem++;
+                }
+            }
+
+            if(contagem > 0) {
+                document.getElementById('avisoCopia').style.display = 'block';
+                document.getElementById('avisoCopia').innerText = `✅ Sucesso! ${contagem} itens formatados. Copie a tabela abaixo e cole na sua planilha.`;
+            } else {
+                alert("Nenhum item com 12 dígitos foi encontrado. Verifique se o texto foi colado corretamente.");
+            }
+        }
+    </script>
+</body>
+</html>
